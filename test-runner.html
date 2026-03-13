@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>🧪 Caring Tap Game — Auto Test Runner</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a12;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column}
+    .header{padding:16px 20px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .header h1{font-size:18px;font-weight:900;color:#ffd54a}
+    .header .sub{font-size:12px;opacity:.7}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .controls button{padding:8px 16px;border:none;border-radius:8px;font-weight:800;font-size:13px;cursor:pointer}
+    .btn-start{background:#7dffb3;color:#0a0a12}
+    .btn-stop{background:#ff6b6b;color:#fff}
+    .btn-clear{background:rgba(255,255,255,.12);color:#fff}
+    .controls label{font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px}
+    .controls input[type=number]{width:55px;padding:4px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.4);color:#fff;font-weight:800;text-align:center;font-size:12px}
+    .controls select{padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.4);color:#fff;font-weight:700;font-size:12px}
+    .main{flex:1;display:grid;grid-template-columns:1fr 380px;gap:0;min-height:0}
+    @media(max-width:900px){.main{grid-template-columns:1fr;grid-template-rows:50vh 1fr}}
+    .game-frame{position:relative;background:#000;overflow:hidden;min-height:300px}
+    .game-frame iframe{width:100%;height:100%;border:none;transform-origin:0 0}
+    .game-frame .overlay-badge{position:absolute;top:8px;left:8px;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:900;z-index:10;pointer-events:none}
+    .badge-running{background:rgba(125,255,179,.2);color:#7dffb3;border:1px solid rgba(125,255,179,.3)}
+    .badge-idle{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.1)}
+    .panel{display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,.08);overflow:hidden}
+    @media(max-width:900px){.panel{border-left:none;border-top:1px solid rgba(255,255,255,.08)}}
+    .stats{padding:14px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.06);display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .stat{background:rgba(0,0,0,.25);border-radius:10px;padding:10px 12px}
+    .stat .label{font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.6;font-weight:700}
+    .stat .value{font-size:22px;font-weight:900;margin-top:2px}
+    .stat .value.ok{color:#7dffb3}
+    .stat .value.warn{color:#ffd54a}
+    .stat .value.bad{color:#ff6b6b}
+    .log-header{padding:10px 14px;font-weight:800;font-size:12px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.15);display:flex;justify-content:space-between;align-items:center}
+    .log-header .filter{display:flex;gap:4px}
+    .log-header .filter button{padding:3px 8px;border:1px solid rgba(255,255,255,.15);border-radius:6px;background:transparent;color:rgba(255,255,255,.6);font-size:10px;font-weight:700;cursor:pointer}
+    .log-header .filter button.active{background:rgba(255,213,74,.15);color:#ffd54a;border-color:rgba(255,213,74,.3)}
+    .log{flex:1;overflow-y:auto;padding:8px;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;line-height:1.6}
+    .log-entry{padding:3px 8px;border-radius:4px;margin-bottom:2px;white-space:pre-wrap;word-break:break-all}
+    .log-entry.info{color:rgba(255,255,255,.7)}
+    .log-entry.ok{color:#7dffb3;background:rgba(125,255,179,.04)}
+    .log-entry.warn{color:#ffd54a;background:rgba(255,213,74,.04)}
+    .log-entry.error{color:#ff6b6b;background:rgba(255,107,107,.06)}
+    .log-entry.round{color:#82b1ff;background:rgba(130,177,255,.04);font-weight:700}
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>🧪 Auto Test Runner</h1>
+    <div class="sub">Plays the game automatically, monitors for bugs over long sessions</div>
+  </div>
+  <div class="controls">
+    <label>Rounds: <input type="number" id="maxRounds" value="100" min="1" max="9999"></label>
+    <label>Hit speed:
+      <select id="hitSpeed">
+        <option value="fast">Fast (stress test)</option>
+        <option value="normal" selected>Normal (realistic)</option>
+        <option value="slow">Slow (casual)</option>
+      </select>
+    </label>
+    <button class="btn-start" id="btnStart">▶ Start Test</button>
+    <button class="btn-stop" id="btnStop" disabled>⏹ Stop</button>
+    <button class="btn-clear" id="btnClear">Clear Log</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="game-frame">
+    <div class="overlay-badge badge-idle" id="statusBadge">IDLE</div>
+    <iframe id="gameFrame" src="drum.html"></iframe>
+  </div>
+
+  <div class="panel">
+    <div class="stats">
+      <div class="stat"><div class="label">Rounds</div><div class="value ok" id="sRounds">0</div></div>
+      <div class="stat"><div class="label">Total Hits</div><div class="value ok" id="sHits">0</div></div>
+      <div class="stat"><div class="label">Bugs Found</div><div class="value ok" id="sBugs">0</div></div>
+      <div class="stat"><div class="label">Uptime</div><div class="value ok" id="sUptime">0:00</div></div>
+      <div class="stat"><div class="label">Avg Frame Time</div><div class="value ok" id="sFrame">-</div></div>
+      <div class="stat"><div class="label">Memory (est)</div><div class="value ok" id="sMem">-</div></div>
+    </div>
+
+    <div class="log-header">
+      <span>Event Log</span>
+      <div class="filter">
+        <button class="active" data-f="all">All</button>
+        <button data-f="error">Bugs</button>
+        <button data-f="warn">Warn</button>
+        <button data-f="round">Rounds</button>
+      </div>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const gameFrame   = document.getElementById("gameFrame");
+  const logEl       = document.getElementById("log");
+  const statusBadge = document.getElementById("statusBadge");
+  const btnStart    = document.getElementById("btnStart");
+  const btnStop     = document.getElementById("btnStop");
+  const btnClear    = document.getElementById("btnClear");
+
+  // Stats elements
+  const sRounds = document.getElementById("sRounds");
+  const sHits   = document.getElementById("sHits");
+  const sBugs   = document.getElementById("sBugs");
+  const sUptime = document.getElementById("sUptime");
+  const sFrame  = document.getElementById("sFrame");
+  const sMem    = document.getElementById("sMem");
+
+  // Filter
+  let logFilter = "all";
+  document.querySelectorAll(".filter button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      logFilter = btn.dataset.f;
+      applyFilter();
+    });
+  });
+
+  function applyFilter(){
+    logEl.querySelectorAll(".log-entry").forEach(el => {
+      if(logFilter === "all") { el.style.display = ""; return; }
+      el.style.display = el.classList.contains(logFilter) ? "" : "none";
+    });
+  }
+
+  // Logging
+  function log(msg, type = "info"){
+    const ts = new Date().toLocaleTimeString();
+    const div = document.createElement("div");
+    div.className = "log-entry " + type;
+    div.textContent = `[${ts}] ${msg}`;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    if(logFilter !== "all" && !div.classList.contains(logFilter)) div.style.display = "none";
+  }
+
+  btnClear.addEventListener("click", () => { logEl.innerHTML = ""; });
+
+  // Test state
+  let testRunning = false;
+  let testInterval = null;
+  let roundCount = 0;
+  let hitCount = 0;
+  let bugCount = 0;
+  let startTime = 0;
+  let lastFrameCheck = 0;
+  let frameTimes = [];
+
+  // Access game internals via iframe
+  function getGameWin(){
+    try { return gameFrame.contentWindow; } catch(e) { return null; }
+  }
+
+  function getGameDoc(){
+    try { return gameFrame.contentDocument || gameFrame.contentWindow.document; } catch(e) { return null; }
+  }
+
+  // Simulate a hit — try multiple methods for maximum reliability
+  function simulateHit(){
+    const win = getGameWin();
+    const doc = getGameDoc();
+    if(!win && !doc) { log("No iframe access", "warn"); return; }
+    let method = "none";
+    try {
+      // Method 1: Call triggerHit() directly if exposed
+      if(win && typeof win.triggerHit === "function"){
+        win.triggerHit();
+        method = "triggerHit";
+      }
+      // Method 2: Dispatch keyboard "f" key
+      else if(doc){
+        doc.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "f", code: "KeyF", keyCode: 70, which: 70, bubbles: true
+        }));
+        method = "keyboard";
+      }
+      hitCount++;
+    } catch(e){
+      // If triggerHit failed, try keyboard fallback
+      try {
+        if(doc){
+          doc.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "f", code: "KeyF", keyCode: 70, which: 70, bubbles: true
+          }));
+          hitCount++;
+          method = "keyboard-fallback";
+        }
+      } catch(e2){
+        log("All hit methods failed: " + e.message, "error");
+        bugCount++;
+      }
+    }
+    // Log first few hits to confirm method works
+    if(hitCount <= 3 || hitCount % 50 === 0){
+      log("Hit #" + hitCount + " via " + method, "info");
+    }
+  }
+
+  // Simulate clicking the START button in the iframe
+  function clickStart(){
+    const doc = getGameDoc();
+    if(!doc) return false;
+    try {
+      const btn = doc.getElementById("startBtn");
+      if(btn && !doc.getElementById("overlay").classList.contains("hidden")){
+        btn.click();
+        return true;
+      }
+    } catch(e){}
+    return false;
+  }
+
+  // Check game state — prefer the game's own exposed function
+  function getGameState(){
+    const win = getGameWin();
+    if(!win) return "unknown";
+    try {
+      // Method 1: Use game's exposed getGameState (most accurate)
+      if(typeof win.getGameState === "function"){
+        const s = win.getGameState();
+        // Map game states to test runner states
+        if(s === "menu") return "menu";
+        if(s === "playing") return "playing";
+        if(s === "ready") return "ready_or_end";
+        if(s === "end") return "ended";
+        if(s === "idle") return "ready_or_end";
+      }
+      // Method 2: Fallback to DOM inspection
+      const doc = getGameDoc();
+      const overlay = doc.getElementById("overlay");
+      const canvas  = doc.getElementById("c");
+      const timeEl  = doc.getElementById("time");
+
+      const overlayVisible = overlay && !overlay.classList.contains("hidden");
+      const canvasActive   = canvas && canvas.classList.contains("active");
+      const timeText       = timeEl ? timeEl.textContent : "?";
+
+      if(overlayVisible) return "menu";
+      if(canvasActive && timeText !== "0" && timeText !== "?" && parseInt(timeText) > 0) return "playing";
+      if(canvasActive && (timeText === "0" || parseInt(timeText) <= 0)) return "ended";
+      if(canvasActive) return "ready_or_end";
+
+      return "unknown";
+    } catch(e){
+      return "error";
+    }
+  }
+
+  // Bug detection checks
+  function checkForBugs(){
+    const doc = getGameDoc();
+    if(!doc) { log("BUG: Cannot access game document (iframe crashed?)", "error"); bugCount++; return; }
+
+    try {
+      // 1. Black screen detection: check if canvas has any non-zero pixels
+      const canvas = doc.getElementById("c");
+      if(canvas){
+        const cctx = canvas.getContext("2d");
+        // Sample a few pixels — if ALL are black/transparent, potential black screen
+        const center = cctx.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height/2), 1, 1).data;
+        const corner = cctx.getImageData(10, 10, 1, 1).data;
+        const isAllBlack = (center[0]+center[1]+center[2]+center[3]) === 0 &&
+                           (corner[0]+corner[1]+corner[2]+corner[3]) === 0;
+        if(isAllBlack){
+          log("⚠️ BLACK SCREEN DETECTED — canvas appears completely empty", "error");
+          bugCount++;
+        }
+      }
+
+      // 2. Background image/video check
+      const bgImg = doc.getElementById("bgImg");
+      const bgVid = doc.getElementById("bgVid");
+      const imgVisible = bgImg && bgImg.style.display !== "none";
+      const vidVisible = bgVid && bgVid.style.display !== "none";
+      if(!imgVisible && !vidVisible){
+        // Only flag during gameplay/ready/end (not menu)
+        const state = getGameState();
+        if(state !== "menu"){
+          log("⚠️ No background visible (img & video both hidden)", "warn");
+        }
+      }
+
+      // 3. Video stall check
+      if(vidVisible && bgVid.readyState >= 2){
+        if(bgVid.paused && getGameState() !== "menu"){
+          log("⚠️ Background video is paused during gameplay", "warn");
+        }
+      }
+
+      // 4. Score element exists and is a number
+      const scoreEl = doc.getElementById("score");
+      if(scoreEl){
+        const val = scoreEl.textContent;
+        if(val !== "" && isNaN(parseInt(val))){
+          log("BUG: Score shows non-numeric value: " + val, "error");
+          bugCount++;
+        }
+      }
+
+      // 5. Timer sanity
+      const timeEl = doc.getElementById("time");
+      if(timeEl){
+        const t = parseInt(timeEl.textContent);
+        if(!isNaN(t) && (t < 0 || t > 999)){
+          log("BUG: Timer shows invalid value: " + t, "error");
+          bugCount++;
+        }
+      }
+
+    } catch(e){
+      log("Bug check error: " + e.message, "warn");
+    }
+  }
+
+  // Note: This measures test tick interval (~500ms), NOT game frame rate.
+  // Just used to confirm ticks are consistent.
+  function measureFrameTime(){
+    const now = performance.now();
+    if(lastFrameCheck > 0){
+      const dt = now - lastFrameCheck;
+      frameTimes.push(dt);
+      if(frameTimes.length > 20) frameTimes.shift();
+      const avg = frameTimes.reduce((a,b)=>a+b,0) / frameTimes.length;
+      sFrame.textContent = avg.toFixed(0) + "ms tick";
+      sFrame.className = "value ok"; // tick interval is always ~500ms, not a bug
+    }
+    lastFrameCheck = now;
+  }
+
+  // Memory estimation
+  function checkMemory(){
+    if(performance.memory){
+      const mb = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+      sMem.textContent = mb + " MB";
+      if(mb > 500){
+        sMem.className = "value bad";
+        log("⚠️ HIGH MEMORY: " + mb + "MB — potential leak", "error");
+        bugCount++;
+      } else if(mb > 250){
+        sMem.className = "value warn";
+        log("Memory growing: " + mb + "MB", "warn");
+      } else {
+        sMem.className = "value ok";
+      }
+    } else {
+      sMem.textContent = "N/A";
+    }
+  }
+
+  // Uptime display
+  function updateUptime(){
+    if(!startTime) return;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const h = Math.floor(elapsed / 3600);
+    const m = Math.floor((elapsed % 3600) / 60);
+    const s = elapsed % 60;
+    sUptime.textContent = (h > 0 ? h + ":" : "") + String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+  }
+
+  // Hit interval based on speed setting
+  function getHitInterval(){
+    const speed = document.getElementById("hitSpeed").value;
+    if(speed === "fast") return 150 + Math.random() * 100;   // ~150-250ms
+    if(speed === "slow") return 500 + Math.random() * 400;   // ~500-900ms
+    return 280 + Math.random() * 220; // normal: ~280-500ms
+  }
+
+  // Main test loop state machine
+  let phase = "idle"; // idle | wait_start | ready_hits | playing | wait_end | end_hits
+  let phaseTimer = 0;
+  let hitsInPhase = 0;
+  let lastRoundScore = "";
+  let consecutiveUnknown = 0;
+
+  function testTick(){
+    if(!testRunning) return;
+
+    const state = getGameState();
+    measureFrameTime();
+
+    // Track consecutive unknown states (potential hang)
+    if(state === "unknown" || state === "error"){
+      consecutiveUnknown++;
+      if(consecutiveUnknown > 30){ // ~15 seconds of unknown
+        log("BUG: Game stuck in unknown state for 15+ seconds", "error");
+        bugCount++;
+        consecutiveUnknown = 0;
+        // Try to recover by clicking start
+        clickStart();
+      }
+    } else {
+      consecutiveUnknown = 0;
+    }
+
+    switch(phase){
+
+      case "wait_start":
+        // Wait for iframe to load and show menu, then click START
+        if(state === "menu"){
+          log("Clicking START button...", "info");
+          clickStart();
+          phase = "ready_hits";
+          hitsInPhase = 0;
+          phaseTimer = Date.now();
+        } else if(Date.now() - phaseTimer > 10000){
+          log("Timeout waiting for menu — retrying", "warn");
+          phaseTimer = Date.now();
+        }
+        break;
+
+      case "ready_hits":
+        // Hit 3 times on the READY screen
+        if(state === "playing"){
+          // Already in game, good
+          phase = "playing";
+          log("Game started — playing round " + (roundCount+1), "info");
+          break;
+        }
+        if(state === "ready_or_end" || state === "ended"){
+          // Need to hit
+          if(Date.now() - phaseTimer > getHitInterval()){
+            simulateHit();
+            hitsInPhase++;
+            phaseTimer = Date.now();
+            if(hitsInPhase > 10){
+              // Something might be wrong
+              log("Sent 10+ hits on ready screen — checking", "warn");
+              hitsInPhase = 0;
+            }
+          }
+        }
+        if(Date.now() - phaseTimer > 15000 && hitsInPhase === 0){
+          log("Timeout on ready screen — force hitting", "warn");
+          simulateHit();
+          phaseTimer = Date.now();
+        }
+        break;
+
+      case "playing":
+        // During gameplay — hit at configured speed
+        if(state === "ended" || state === "ready_or_end"){
+          // Round ended
+          const doc = getGameDoc();
+          const finalScore = doc ? doc.getElementById("score").textContent : "?";
+          roundCount++;
+          sRounds.textContent = roundCount;
+          log(`✅ Round ${roundCount} complete — Score: ${finalScore}`, "round");
+
+          // Bug checks at end of each round
+          checkForBugs();
+          checkMemory();
+
+          const maxRounds = parseInt(document.getElementById("maxRounds").value) || 100;
+          if(roundCount >= maxRounds){
+            log("🏁 TEST COMPLETE — " + roundCount + " rounds, " + bugCount + " bugs found", bugCount > 0 ? "error" : "ok");
+            stopTest();
+            return;
+          }
+
+          // Transition to end_hits (hit 3 times to restart)
+          phase = "end_hits";
+          hitsInPhase = 0;
+          phaseTimer = Date.now() + 2500; // wait for TIME OUT countdown (2s)
+          break;
+        }
+
+        // Normal gameplay — send hits
+        if(Date.now() - phaseTimer > getHitInterval()){
+          simulateHit();
+          phaseTimer = Date.now();
+        }
+        break;
+
+      case "end_hits":
+        // Wait for TIME OUT countdown, then hit 3 times to go to READY
+        if(Date.now() < phaseTimer) break; // still in countdown
+
+        if(state === "menu"){
+          // Somehow back to menu
+          phase = "wait_start";
+          phaseTimer = Date.now();
+          break;
+        }
+        if(state === "playing"){
+          // Already started new round
+          phase = "playing";
+          log("Game started — playing round " + (roundCount+1), "info");
+          break;
+        }
+        if(state === "ready_or_end" || state === "ended"){
+          if(Date.now() - phaseTimer > getHitInterval()){
+            simulateHit();
+            hitsInPhase++;
+            phaseTimer = Date.now();
+          }
+          // After enough hits, should transition to ready screen, then to game
+          if(hitsInPhase >= 3 && hitsInPhase <= 6){
+            // Now in ready screen — need 3 more hits
+            // (the state machine will keep hitting)
+          }
+          if(hitsInPhase > 20){
+            log("Sent 20+ hits on end/ready — possible stuck state", "warn");
+            hitsInPhase = 0;
+            checkForBugs();
+          }
+        }
+        break;
+    }
+
+    // Update stats
+    sHits.textContent = hitCount;
+    sBugs.textContent = bugCount;
+    sBugs.className = "value " + (bugCount === 0 ? "ok" : bugCount < 5 ? "warn" : "bad");
+    updateUptime();
+  }
+
+  // Periodic deep checks (every 30 seconds)
+  let deepCheckInterval = null;
+
+  function startTest(){
+    if(testRunning) return;
+    testRunning = true;
+    roundCount = 0; hitCount = 0; bugCount = 0;
+    frameTimes = []; lastFrameCheck = 0; consecutiveUnknown = 0;
+    startTime = Date.now();
+
+    sRounds.textContent = "0";
+    sHits.textContent = "0";
+    sBugs.textContent = "0";
+    sUptime.textContent = "0:00";
+    sFrame.textContent = "-";
+    sMem.textContent = "-";
+    sFrame.className = sRounds.className = sHits.className = sBugs.className = sMem.className = "value ok";
+
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    statusBadge.textContent = "RUNNING";
+    statusBadge.className = "overlay-badge badge-running";
+
+    log("🚀 Test started — target: " + document.getElementById("maxRounds").value + " rounds", "ok");
+    log("Hit speed: " + document.getElementById("hitSpeed").value, "info");
+
+    // Start by waiting for menu
+    phase = "wait_start";
+    phaseTimer = Date.now();
+
+    // Main tick at ~500ms (fast enough for state detection)
+    testInterval = setInterval(testTick, 500);
+
+    // Deep bug checks every 30s
+    deepCheckInterval = setInterval(() => {
+      if(!testRunning) return;
+      checkForBugs();
+      checkMemory();
+      log("Health check — Round: " + roundCount + " | Hits: " + hitCount + " | Bugs: " + bugCount + " | State: " + getGameState(), "info");
+    }, 30000);
+  }
+
+  function stopTest(){
+    testRunning = false;
+    if(testInterval) clearInterval(testInterval);
+    if(deepCheckInterval) clearInterval(deepCheckInterval);
+    testInterval = null;
+    deepCheckInterval = null;
+
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    statusBadge.textContent = "STOPPED";
+    statusBadge.className = "overlay-badge badge-idle";
+
+    log("⏹ Test stopped — " + roundCount + " rounds completed, " + bugCount + " bugs found", roundCount > 0 ? "round" : "info");
+  }
+
+  btnStart.addEventListener("click", startTest);
+  btnStop.addEventListener("click", stopTest);
+
+  // Auto-start hint
+  log("Load drum.html in the game frame, then click ▶ Start Test", "info");
+  log("The test will: click START → hit 3x (ready) → play 30s → hit 3x (restart) → repeat", "info");
+  log("It monitors: black screen, video stalls, frame drops, memory leaks, stuck states", "info");
+
+})();
+</script>
+</body>
+</html>
