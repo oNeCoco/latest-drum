@@ -9,37 +9,21 @@
     html, body { height:100%; margin:0; padding:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#000; overflow:hidden; }
     #frame { width:100vw; height:100vh; position:relative; overflow:hidden; background:#120818; }
 
-    /* ===== BACKGROUND LAYER ===== */
+    /* ===== BACKGROUND LAYER — now supports <video> too ===== */
     #bgLayer { position:absolute; inset:0; z-index:0; background:linear-gradient(135deg,#1a0a2e 0%,#3d0a1a 50%,#0a1a2e 100%); pointer-events:none; }
-    #bgLayer img, #bgLayer video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  display: none;
-  background: #120818;
-}
+    #bgLayer img, #bgLayer video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; display:none; }
 
     #bgTint  { position:absolute; inset:0; z-index:1; background:rgba(10,0,8,0.35); pointer-events:none; }
     #c { position:absolute; inset:0; z-index:2; width:100%; height:100%; display:block; pointer-events:none; }
     #c.active { pointer-events:auto; }
 
-    /* === HUD: upright portrait layout. Score on top, Time on bottom === */
     .hud {
       position:absolute;
-      left: 0; right: 0;
       top: 20px;
+      left: 0;
+      width: 100%;
+      transform: none;
       display:flex; justify-content:space-between;
-      gap:16px; z-index:3; pointer-events:none;
-      padding: 0 20px;
-    }
-    .hud-bottom {
-      position:absolute;
-      left: 0; right: 0;
-      bottom: 20px;
-      display:flex; justify-content:center;
       gap:16px; z-index:3; pointer-events:none;
       padding: 0 20px;
     }
@@ -69,6 +53,8 @@
     .hint { margin-top:10px; font-size:12px; opacity:.75; text-align:center; }
     .gpRow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; margin-top:8px; }
     .gpRow label { display:flex; align-items:center; gap:4px; font-weight:700; }
+
+
   </style>
 </head>
 <body>
@@ -79,7 +65,6 @@
   </div>
   <div id="bgTint"></div>
 
-  <!-- HUD: Score at top-left, Time at top-right (upright) -->
   <div class="hud">
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Time: <span id="time">30</span>s</div>
@@ -241,20 +226,33 @@
 
   // ==========================================
   // PERFORMANCE FIX #1: Between-round memory cleanup
+  // No auto-reload (event mode — laptop hidden, unattended)
+  // Instead: aggressively clean up between rounds
   // ==========================================
   let roundCount = 0;
 
   function betweenRoundCleanup() {
     roundCount++;
+
+    // 1. Flush all pooled objects back
     for (const it of itemPool) { it._inUse = false; it.alive = false; }
     for (const p of popPool)   { p._inUse = false; }
+
+    // 2. Trim offscreen canvas cache — keep only common sizes, dump rare ones
+    //    After many rounds, varied note sizes create hundreds of cached canvases
     const MAX_CACHE = 40;
     const keys = Object.keys(offscreenCache);
     if (keys.length > MAX_CACHE) {
+      // Keep the 20 most recent, delete rest
       const toDelete = keys.slice(0, keys.length - 20);
       for (const k of toDelete) delete offscreenCache[k];
     }
+
+    // 3. Hint the browser to garbage collect (not guaranteed, but helps)
     if (window.gc) { try { window.gc(); } catch(e){} }
+
+    // 4. Every 10 rounds, do a deeper canvas buffer reset
+    //    (forces the GPU to release stale texture memory)
     if (roundCount % 10 === 0) {
       const w = canvas.width, h = canvas.height;
       canvas.width = 0; canvas.height = 0;
@@ -290,6 +288,7 @@
   const DEFAULT_MUSIC_URL    = withVer("bgmusic.mp3");
   const DEFAULT_DRUM_SFX_URL = withVer("drumsound.mp3");
 
+  // Preload default bgs (MP4 videos — use link preload, not Image)
   const _preloadBg = (() => {
     [DEFAULT_READY_BG_URL, DEFAULT_GAME_BG_URL, DEFAULT_END_BG_URL].forEach(url => {
       const link = document.createElement("link");
@@ -310,7 +309,7 @@
   const bgVidEl  = document.getElementById("bgVid");
   const bgTint   = document.getElementById("bgTint");
   const canvas   = document.getElementById("c");
-  const ctx      = canvas.getContext("2d", { alpha: true });
+  const ctx      = canvas.getContext("2d", { alpha: true }); // PERF: explicit alpha
   const scoreEl  = document.getElementById("score");
   const timeEl   = document.getElementById("time");
   const overlay  = document.getElementById("overlay");
@@ -326,6 +325,7 @@
   }
 
   function resize() {
+    // PERF FIX: cap DPR at 1 to reduce pixel count (huge perf gain on integrated GPU)
     const dpr = 1;
     canvas.width  = Math.floor(window.innerWidth  * dpr);
     canvas.height = Math.floor(window.innerHeight * dpr);
@@ -359,12 +359,13 @@
 
 
   // ==========================================
-  // INDEXEDDB
+  // INDEXEDDB (for large assets — backgrounds)
   // ==========================================
   const IDB_NAME = "caringGame", IDB_STORE = "assets";
   const IDB_GAME_BG_KEY  = "bg_game_blob";
   const IDB_READY_BG_KEY = "bg_ready_blob";
   const IDB_END_BG_KEY   = "bg_end_blob";
+  // Also store the MIME type so we know if it's video or image
   const IDB_GAME_BG_MIME  = "bg_game_mime";
   const IDB_READY_BG_MIME = "bg_ready_mime";
   const IDB_END_BG_MIME   = "bg_end_mime";
@@ -373,7 +374,7 @@
   function openIDB(){
     if(_idbConn) return Promise.resolve(_idbConn);
     return new Promise((res,rej)=>{
-      const req = indexedDB.open(IDB_NAME, 2);
+      const req = indexedDB.open(IDB_NAME, 2); // bump version for new store compat
       req.onupgradeneeded = e => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(IDB_STORE)) {
@@ -408,7 +409,7 @@
 
 
   // ==========================================
-  // CACHE VERSIONING
+  // CACHE VERSIONING (clear stale defaults, keep user uploads)
   // ==========================================
   const LS_VER_KEY = "cg_asset_version";
   function isUserUpload(v){ return typeof v === "string" && v.startsWith("data:"); }
@@ -418,6 +419,7 @@
       const v = localStorage.getItem(k);
       if(v && !isUserUpload(v)) localStorage.removeItem(k);
     }
+    // Always reset audio to defaults (even user uploads) on version change
     localStorage.removeItem("cg_music");
     localStorage.removeItem("cg_drum_sfx");
     localStorage.removeItem("cg_points");
@@ -437,7 +439,8 @@
 
 
   // ==========================================
-  // VIDEO BACKGROUND MANAGER
+  // PERFORMANCE FIX #2: VIDEO BACKGROUND MANAGER
+  // Supports MP4/WebM (hardware decoded) + GIF/image fallback
   // ==========================================
   const bgObjectUrls = { game:null, ready:null, end:null };
 
@@ -454,16 +457,18 @@
     if (src) {
       const useVideo = forceVideo || isVideoUrl(src);
       if (useVideo) {
+        // Show video, hide image
         bgImgEl.style.display = "none";
         bgImgEl.src = "";
         bgVidEl.style.display = "block";
         bgVidEl.src = src;
         bgVidEl.play().catch(()=>{});
       } else {
+        // Show image, hide video
         bgVidEl.style.display = "none";
         bgVidEl.pause();
         bgVidEl.removeAttribute("src");
-        bgVidEl.load();
+        bgVidEl.load(); // PERF: release video decoder memory
         bgImgEl.style.display = "block";
         bgImgEl.onerror = () => {
           bgImgEl.style.display = "none";
@@ -472,6 +477,7 @@
         bgImgEl.src = src;
       }
     } else {
+      // Clear both
       bgImgEl.style.display = "none";
       bgImgEl.src = "";
       bgVidEl.style.display = "none";
@@ -509,6 +515,7 @@
   const readyBgStatusEl = document.getElementById("readyBgStatus");
   const endBgStatusEl   = document.getElementById("endBgStatus");
 
+  // Start loading the first wallpaper immediately
   setBg(DEFAULT_READY_BG_URL);
 
   async function loadStageBg(stage){
@@ -544,6 +551,7 @@
     }
   }
 
+  // Bind bg uploads (now accept video too)
   async function handleBgUpload(file, idbBlobKey, idbMimeKey, statusEl) {
     if (!file) return;
     const tempUrl = URL.createObjectURL(file);
@@ -570,6 +578,7 @@
     handleBgUpload(e.target.files?.[0], IDB_END_BG_KEY, IDB_END_BG_MIME, endBgStatusEl);
   });
 
+  // Restore bg status labels on load
   (async function restoreBgStatuses(){
     try {
       const g = await idbGet(IDB_GAME_BG_KEY);  const gm = await idbGet(IDB_GAME_BG_MIME);
@@ -618,6 +627,7 @@
   const imgs = { logo1:makeImg(), logo2:makeImg(), logo3:makeImg(), boom:makeImg(), hit:makeImg() };
   const rdy  = { logo1:false, logo2:false, logo3:false, boom:false, hit:false };
 
+  // PERF FIX #3: Pre-render images to offscreen canvases (avoid repeated clip+draw)
   const offscreenCache = {};
 
   function prerenderToOffscreen(key, img, size) {
@@ -629,6 +639,7 @@
     const ox = oc.getContext("2d");
     const r = size * 0.5;
 
+    // Draw circle-clipped image
     ox.save();
     ox.beginPath();
     ox.arc(r, r, r, 0, Math.PI * 2);
@@ -647,6 +658,7 @@
     }
     ox.restore();
 
+    // Border rings
     ox.strokeStyle = "rgba(255,255,255,.92)";
     ox.lineWidth = 5;
     ox.beginPath();
@@ -664,6 +676,7 @@
   }
 
   function invalidateOffscreen(key) {
+    // Clear all cached sizes for this key
     for (const k of Object.keys(offscreenCache)) {
       if (k.startsWith(key + "_")) delete offscreenCache[k];
     }
@@ -697,6 +710,7 @@
   bindFile("boomFile",  LS.BOOM,  "boom");
   bindFile("hitFile",   LS.HIT,   "hit");
 
+  // Reset all assets
   document.getElementById("resetAssets").addEventListener("click", async () => {
     [LS.LOGO1, LS.LOGO2, LS.LOGO3, LS.BOOM, LS.HIT].forEach(k => localStorage.removeItem(k));
     ["logoFile","logo2File","logo3File","boomFile","hitFile","bgFile","readyBgFile","endBgFile"].forEach(id => document.getElementById(id).value = "");
@@ -721,6 +735,7 @@
     updateBgStatus(readyBgStatusEl, 0);
     updateBgStatus(endBgStatusEl, 0);
 
+    // Reset audio
     localStorage.setItem(LS.MUSIC, DEFAULT_MUSIC_URL);
     localStorage.setItem(LS.DRUM_SFX, DEFAULT_DRUM_SFX_URL);
     bgMusicEl.src = DEFAULT_MUSIC_URL;
@@ -730,6 +745,7 @@
     drawPreviews();
   });
 
+  // Previews
   const pCtx = {
     logo1: document.getElementById("logoPrev").getContext("2d"),
     logo2: document.getElementById("logo2Prev").getContext("2d"),
@@ -875,6 +891,7 @@
     return new Promise(resolve => {
       try {
         if(statusEl) statusEl.textContent = "⏳ Loading SFX...";
+        // Add timestamp to bust ALL caches (browser + CDN) for file URLs
         const fetchUrl = url.startsWith("data:") ? url : url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
         fetch(fetchUrl, { cache: "no-store" })
           .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
@@ -900,6 +917,7 @@
       }
     });
   }
+  // Always load default SFX directly (ignore localStorage)
   loadDrumBuf(DEFAULT_DRUM_SFX_URL);
 
   document.getElementById("drumFile").addEventListener("change", async e => {
@@ -924,6 +942,8 @@
     showAudioStatus();
   });
 
+  // PERF FIX: Fast synchronous drum sound — no async/await per hit
+  // unlockAudio() is called once at START, after that we use the fast path
   function playSynth(){
     if(!audioCtx || audioCtx.state !== "running") return;
     const t = audioCtx.currentTime;
@@ -939,6 +959,7 @@
   }
 
   function playDrumFast(){
+    // Fast synchronous path — no await, no state checks (already unlocked)
     if(drumBuffer && audioCtx && audioCtx.state === "running"){
       try {
         const s = audioCtx.createBufferSource();
@@ -951,6 +972,7 @@
     }
   }
 
+  // Legacy async wrapper (only used during initial load / settings)
   async function playDrum(){
     if (!audioUnlockedOnce) await unlockAudio();
     if(!drumBuffer) await loadDrumBuf(localStorage.getItem(LS.DRUM_SFX));
@@ -981,7 +1003,8 @@
 
 
   // ==========================================
-  // OBJECT POOL
+  // PERFORMANCE FIX #4: OBJECT POOL
+  // Reuse item/pop objects instead of creating new ones
   // ==========================================
   const POOL_SIZE = 64;
   const itemPool = [];
@@ -1009,25 +1032,14 @@
 
 
   // ==========================================
-  // GAME LOGIC — PORTRAIT MODE
-  // Notes fall from TOP → BOTTOM (instead of right → left)
-  // Drum sits at BOTTOM of screen
-  // Two lanes are LEFT and RIGHT (vertical stripes down the screen)
+  // GAME LOGIC
   // ==========================================
-  const GAME_SECS = 30;
-  const BASE_VY = 420;            // vertical fall speed (was horizontal BASE_VX)
-  const HIT_ICON_SZ = 330;
-  const HIT_RADIUS = 185;
-  const HIT_WINDOW = 180;         // vertical tolerance around drum Y
-  const LANE_GAP = 140;           // horizontal distance between two lanes
-  const MIN_NOTE_GAP = 130;       // vertical spacing between stacked notes in same lane
-  const SPAWN_MARGIN = 80;
-  const MOUTH_Y = 120;            // where notes appear from (offscreen above)
+  const GAME_SECS = 30, BASE_VX = 420, HIT_ICON_SZ = 330, HIT_RADIUS = 185, HIT_WINDOW = 180, LANE_GAP = 140, MIN_NOTE_GAP = 130, SPAWN_MARGIN = 80;
+  const MOUTH_Y = 220;
 
   const items = [], pops = [];
   let running = false, score = 0, timeLeft = 0, last = 0, nextBeatIn = 0, bonusMode = false, drumFlash = 0;
-  let hitX = 0, hitY = 0;
-  let laneX1 = 0, laneX2 = 0;     // two vertical lanes
+  let hitX = 0, hitY = 0, laneX1 = 0, laneX2 = 0;
 
   let isReadyScreen = false;
   let readyHitCount = 0;
@@ -1054,30 +1066,19 @@
     return Math.max(0.40, 0.70 / Math.sqrt(speedMul));
   }
 
-  // In portrait mode, notes spawn ABOVE the top of the screen and fall DOWN.
-  // A "lane" is a vertical column at x = laneX1 or x = laneX2.
-  // New notes spawn with y < existing notes in the same lane, to avoid overlap.
   function trySpawnInLane(laneX, type){
-    const size = rand(84, 110);
-    const half = size * 0.5;
-  
-    const idealY = MOUTH_Y - half; // spawn near mouth, visible on screen
-  
-    let topmost = Infinity;
+    const size = rand(84, 110), half = size * 0.5;
+    let topMost = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
-      if (Math.abs(it.x - laneX) < 5 && it.y < topmost) topmost = it.y;
+      if (Math.abs(it.x - laneX) < 5 && it.y < topMost) topMost = it.y;
     }
-  
-    // do not force new notes above the screen
-    const spawnY = (topmost === Infinity)
-      ? idealY
-      : Math.max(idealY, topmost - half - size - MIN_NOTE_GAP);
-  
+    const idealY = -(MOUTH_Y + half);
+    const nextY = topMost === Infinity ? idealY : topMost - half - size - MIN_NOTE_GAP;
     const it = getItem();
     it.type = type;
     it.x = laneX;
-    it.y = spawnY;
+    it.y = Math.min(idealY, nextY);
     it.size = size;
     it.alive = true;
     items.push(it);
@@ -1092,7 +1093,6 @@
     else trySpawnInLane(Math.random() < 0.5 ? laneX1 : laneX2, type);
   }
 
-  // Hit window is now based on Y distance to the drum
   function canHit(it){ return Math.abs(it.y - hitY) <= HIT_WINDOW; }
 
   function makePop(x, y, txt, t, col) {
@@ -1114,12 +1114,12 @@
     let best = null, bestD = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
-      const d = Math.abs(it.y - hitY);
+      const d = Math.abs(it.x - hitX);
       if (d > HIT_WINDOW) continue;
       if (d < bestD) { bestD = d; best = it; }
     }
     if (best) resolveHit(best);
-    else makePop(hitX, hitY - 120, "MISS", 0.45, "#ffd54a");
+    else makePop(hitX + 60, hitY - 60, "MISS", 0.45, "#ffd54a");
   }
 
   function hitTestXY(px, py){
@@ -1135,14 +1135,15 @@
       }
     }
     if (best) resolveHit(best);
-    else makePop(hitX, hitY - 220, "MISS", 0.45, "#ffd54a");
+    else makePop(hitX + 120, hitY - 20, "MISS", 0.45, "#ffd54a");
   }
 
 
   // ==========================================
-  // DRAW HELPERS
+  // DRAW HELPERS (optimized with offscreen cache)
   // ==========================================
   function drawCircleNote(key, img, size, isRdy, label){
+    // PERF FIX: Use pre-rendered offscreen canvas instead of clipping every frame
     const oc = prerenderToOffscreen(key, img, Math.round(size));
     ctx.drawImage(oc, -size/2, -size/2, size, size);
   }
@@ -1170,22 +1171,16 @@
     ctx.stroke();
   }
 
-  // Lanes are vertical lines from top of screen down to just above the drum
   function drawLanes(h){
     ctx.globalAlpha = 0.18;
     ctx.strokeStyle = "#ffd54a";
     ctx.lineWidth = 4;
-  
-    const mouthY = MOUTH_Y;
-    const drumEdgeY = hitY - HIT_RADIUS - 20;
-  
+    const mouthY = 80;
+    const drumTopY = hitY - HIT_RADIUS - 20;
     ctx.beginPath();
-    ctx.moveTo(laneX1, mouthY);
-    ctx.lineTo(laneX1, drumEdgeY);
-    ctx.moveTo(laneX2, mouthY);
-    ctx.lineTo(laneX2, drumEdgeY);
+    ctx.moveTo(laneX1, mouthY); ctx.lineTo(laneX1, drumTopY);
+    ctx.moveTo(laneX2, mouthY); ctx.lineTo(laneX2, drumTopY);
     ctx.stroke();
-  
     ctx.globalAlpha = 1;
   }
 
@@ -1206,22 +1201,25 @@
     ctx.restore();
   }
 
-  // Drum position: center X, near bottom Y
+  // Drum position
   const LS_POS = { X:"cg_hitXmul", Y:"cg_hitYmul" };
   try { localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); } catch(e){}
-  try { if(!localStorage.getItem("cg_pos_v3_portrait")){ localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); localStorage.setItem("cg_pos_v3_portrait","1"); } } catch(e){}
-  let hitXMul = parseFloat(localStorage.getItem(LS_POS.X) || "0.50"); // center
-  let hitYMul = parseFloat(localStorage.getItem(LS_POS.Y) || "0.82"); // near bottom
+  try { if(!localStorage.getItem("cg_pos_v2")){ localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); localStorage.setItem("cg_pos_v2","1"); } } catch(e){}
+  let hitXMul = 0.50;
+  let hitYMul = 0.82;
 
   function updatePositions(){
     const w = window.innerWidth, h = window.innerHeight;
     hitX = w * hitXMul;
-    hitY = Math.max(200, h * hitYMul);
+    hitY = h * hitYMul;
     laneX1 = hitX - LANE_GAP * 0.5;
     laneX2 = hitX + LANE_GAP * 0.5;
   }
+  // Expose drum position for external test runner
   window.getHitPos = () => ({ x: hitX, y: hitY });
+  // Expose triggerHit for test runner to call directly
   window.triggerHit = () => { triggerHit(); };
+  // Expose game state for test runner
   window.getGameState = () => {
     if (document.getElementById("overlay") && !document.getElementById("overlay").classList.contains("hidden")) return "menu";
     if (isReadyScreen) return "ready";
@@ -1247,7 +1245,7 @@
 
     if (!bonusMode && timeLeft <= 5) {
       bonusMode = true;
-      makePop(window.innerWidth / 2, hitY - 260, "BONUS RUSH!", 1.0, "#ffd54a");
+      makePop(hitX, hitY - 260, "BONUS RUSH!", 1.0, "#ffd54a");
     }
 
     if (timeLeft <= 0) { endGame(); return; }
@@ -1255,14 +1253,14 @@
     nextBeatIn -= dt;
     if (nextBeatIn <= 0) { spawnGroup(); nextBeatIn = beatInterval(); }
 
-    // Move items DOWN (portrait mode) & clean up notes that fell past the drum
+    // Move items & clean up dead ones
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
       if (!it.alive) { releaseItem(it); items.splice(i, 1); continue; }
-      it.y += BASE_VY * speedMul * dt;
-      // Remove notes once they fall below the drum
+      it.y += BASE_VX * speedMul * dt;
       if (it.y > h + 260) { releaseItem(it); items.splice(i, 1); }
     }
+    // Clean pops
     for (let i = pops.length - 1; i >= 0; i--) {
       pops[i].t -= dt;
       pops[i].y -= 30 * dt;
@@ -1271,13 +1269,14 @@
     if (drumFlash > 0) drumFlash -= dt;
 
     ctx.clearRect(0, 0, w, h);
-    drawLanes(h);
+    drawLanes(w);
     drawHitDrum();
 
-    // Sort so notes nearest the drum (largest y) draw on top
+    // PERF: sort only alive items, draw back-to-front
     items.sort((a,b) => a.y - b.y);
     for (const it of items) { if (it.alive) drawNote(it); }
 
+    // Draw pops
     for (const p of pops) {
       if (p.t <= 0) continue;
       ctx.globalAlpha = Math.min(1, p.t / 0.2);
@@ -1293,6 +1292,7 @@
   }
 
   function resetGame(){
+    // PERF: release all pooled objects
     for (const it of items) releaseItem(it);
     items.length = 0;
     for (const p of pops) releasePop(p);
@@ -1328,12 +1328,13 @@
 
 
   // ==========================================
-  // READY SCREEN — UPRIGHT PORTRAIT
+  // READY SCREEN
   // ==========================================
   async function showReadyScreen(){
     if (endScreenLoop) cancelAnimationFrame(endScreenLoop);
     endScreenLoop = null;
 
+    // PERF: clean up memory between rounds (no reload needed)
     betweenRoundCleanup();
 
     isReadyScreen = true;
@@ -1363,34 +1364,33 @@
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(0, 0, w, h);
 
-    // NO rotation — draw upright
+    ctx.save();
+    const rw = w, rh = h;
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // "GET READY!" at top
     ctx.fillStyle = "#ffd54a";
-    ctx.font = "900 " + Math.floor(Math.min(w, h) * 0.08) + "px system-ui";
-    ctx.fillText("GET READY!", w/2, h*0.25);
+    ctx.font = "900 " + Math.floor(rw*0.12) + "px system-ui";
+    ctx.fillText("GET READY!", rw/2, rh*0.22);
 
     const t = performance.now()/1000;
-    const bob = Math.sin(t*2.4) * (h*0.010);
+    const bob = Math.sin(t*2.4) * (rh*0.010);
     const pulse = 0.75 + 0.25*(0.5+0.5*Math.sin(t*3.2));
 
-    // "HIT 3 TIMES TO START" in middle
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25*pulse;
     ctx.fillStyle = "rgba(255,255,255,1)";
-    ctx.font = "800 " + Math.floor(Math.min(w, h) * 0.045) + "px system-ui";
-    ctx.fillText("HIT 3 TIMES TO START", w/2, h*0.48 + bob);
+    ctx.font = "800 " + Math.floor(rw*0.055) + "px system-ui";
+    ctx.fillText("HIT 3 TIMES TO START", rw/2, rh*0.40 + bob);
     ctx.restore();
 
-    // Dots showing hit progress (below the text)
     const need = readyNeeded;
-    const dotR = Math.floor(Math.min(w, h) * 0.025);
+    const dotR = Math.floor(rw * 0.030);
     const gap  = dotR * 3.2;
     const totalDotW = (need - 1) * gap;
-    const DOT_CENTER_X = w/2;
-    const DOT_CENTER_Y = h*0.60;
+    const DOT_CENTER_X = rw * 0.48;
+    const DOT_CENTER_Y = rh * 0.56;
 
     for (let i = 0; i < need; i++) {
       const dx = DOT_CENTER_X - totalDotW / 2 + i * gap;
@@ -1403,6 +1403,10 @@
       ctx.lineWidth = 3;
       ctx.stroke();
     }
+
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "600 " + Math.floor(rw*0.030) + "px system-ui";
+    ctx.restore();
   }
 
   async function readyScreenHit(){
@@ -1418,7 +1422,7 @@
 
 
   // ==========================================
-  // END SCREEN — UPRIGHT PORTRAIT
+  // END SCREEN
   // ==========================================
   function endGame(){
     if (readyLoop) cancelAnimationFrame(readyLoop);
@@ -1457,6 +1461,9 @@
     ctx.fillStyle = "rgba(0,0,0," + (0.35*fadeIn) + ")";
     ctx.fillRect(0, 0, w, h);
 
+    ctx.save();
+    const rw = w, rh = h;
+    ctx.globalAlpha = fadeIn;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
@@ -1464,6 +1471,7 @@
 
     // Phase 1: TIME OUT countdown
     if (elapsed < TIMEOUT_COUNTDOWN_SECS) {
+      ctx.restore();
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "rgba(0,0,0,1)";
       ctx.fillRect(0, 0, w, h);
@@ -1473,6 +1481,8 @@
       const phase = 1 - (remain / TIMEOUT_COUNTDOWN_SECS);
       const pulse = 0.85 + 0.15*Math.sin(t*4.0);
 
+      ctx.save();
+      const rw2 = w, rh2 = h;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
@@ -1480,23 +1490,23 @@
       ctx.globalAlpha = a;
 
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 " + Math.floor(Math.min(w, h) * 0.10) + "px system-ui";
-      ctx.fillText("TIME OUT", w/2, h*0.38);
+      ctx.font = "900 " + Math.floor(rw2*0.14) + "px system-ui";
+      ctx.fillText("TIME OUT", rw2/2, rh2*0.32);
 
       if (n > 0) {
         const scale = (1.15 - 0.25*phase) * pulse;
         ctx.save();
-        ctx.translate(w/2, h*0.54);
+        ctx.translate(rw2/2, rh2*0.48);
         ctx.scale(scale, scale);
-        ctx.font = "950 " + Math.floor(Math.min(w, h) * 0.14) + "px system-ui";
+        ctx.font = "950 " + Math.floor(rw2*0.18) + "px system-ui";
         ctx.fillText(String(n), 0, 0);
         ctx.restore();
       }
 
-      // Circular progress ring
+      // Circular progress
       const prog = Math.min(1, elapsed / TIMEOUT_COUNTDOWN_SECS);
-      const cx = w/2, cy = h*0.54;
-      const radius = Math.min(w, h) * 0.12;
+      const cx = rw2/2, cy = rh2*0.48;
+      const radius = Math.min(rw2, rh2) * 0.11;
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineWidth = Math.max(6, radius*0.12);
@@ -1511,35 +1521,31 @@
       ctx.stroke();
       ctx.restore();
 
-      ctx.globalAlpha = 1;
+      ctx.restore();
       return;
     }
 
     // Phase 2: Score + hit to replay
-    ctx.globalAlpha = fadeIn;
     const pulse = 0.75 + 0.25*(0.5+0.5*Math.sin(t*3.0));
-    const bob = Math.sin(t*2.2) * (h*0.012);
+    const bob = Math.sin(t*2.2) * (rh*0.012);
 
-    // Big score
     ctx.fillStyle = "#ffffff";
-    ctx.font = "950 " + Math.floor(Math.min(w, h) * 0.14) + "px system-ui";
+    ctx.font = "950 " + Math.floor(rw*0.14) + "px system-ui";
     ctx.globalAlpha = 0.85 + 0.15*pulse;
-    ctx.fillText(String(score), w/2, h*0.38 + bob);
+    ctx.fillText(String(score), rw/2, rh*0.32 + bob);
     ctx.globalAlpha = 1;
 
-    // Hit X more times prompt
     const hitsLeft = drumRestartNeeded - drumRestartCount;
     ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "800 " + Math.floor(Math.min(w, h) * 0.038) + "px system-ui";
-    ctx.fillText("Hit " + hitsLeft + " more time" + (hitsLeft !== 1 ? "s" : "") + " to play again", w/2, h*0.60);
+    ctx.font = "800 " + Math.floor(rw*0.045) + "px system-ui";
+    ctx.fillText("Hit " + hitsLeft + " more time" + (hitsLeft !== 1 ? "s" : "") + " to play again", rw/2, rh*0.50);
 
-    // Dots
-    const dotR = Math.floor(Math.min(w, h) * 0.025);
+    const dotR = Math.floor(rw*0.030);
     const gap = dotR * 3.2;
     const totalDotW = (drumRestartNeeded - 1) * gap;
     for (let i = 0; i < drumRestartNeeded; i++) {
-      const dx = w/2 - totalDotW/2 + i*gap;
-      const dy = h*0.72;
+      const dx = rw/2 - totalDotW/2 + i*gap;
+      const dy = rh*0.62;
       ctx.beginPath();
       ctx.arc(dx, dy, dotR, 0, Math.PI*2);
       ctx.fillStyle = i < drumRestartCount ? "#ffd54a" : "rgba(255,255,255,0.2)";
@@ -1550,6 +1556,7 @@
     }
 
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   async function endScreenHit(){
@@ -1664,7 +1671,8 @@
 
 
   // ==========================================
-  // AUTO-TEST MODE (unchanged)
+  // AUTO-TEST MODE (?autotest=1)
+  // Built-in automation — no iframe needed
   // ==========================================
   const AUTOTEST = new URLSearchParams(location.search).has("autotest");
   if(AUTOTEST){
@@ -1672,6 +1680,7 @@
     let atRound = 0, atHits = 0, atBugs = 0, atStartTime = 0;
     let atHitTimer = null;
 
+    // Floating HUD overlay
     const hud = document.createElement("div");
     hud.id = "atHud";
     hud.style.cssText = "position:fixed;top:8px;right:8px;z-index:99999;background:rgba(0,0,0,.85);color:#7dffb3;font:900 13px/1.6 monospace;padding:10px 14px;border-radius:10px;border:1px solid rgba(125,255,179,.3);pointer-events:none;min-width:200px;";
@@ -1690,6 +1699,7 @@
         "Uptime: " + uptime;
     }
 
+    // Auto-hit: fires triggerHit at regular intervals
     function atStartHitting(intervalMs){
       atStopHitting();
       atHitTimer = setInterval(() => {
@@ -1701,13 +1711,15 @@
       if(atHitTimer){ clearInterval(atHitTimer); atHitTimer = null; }
     }
 
-    let atPhase = "init";
+    // Monitor state changes and drive the game
+    let atPhase = "init"; // init | ready | playing | ending | end
     let atCheckTimer = null;
 
     function atTick(){
       updateHud();
 
       if(atPhase === "init"){
+        // Click START button
         atLog("Clicking START...");
         startBtn.click();
         atPhase = "wait_ready";
@@ -1718,7 +1730,7 @@
         if(isReadyScreen){
           atPhase = "ready";
           atLog("Ready screen — hitting 3x");
-          atStartHitting(400);
+          atStartHitting(400); // hit every 400ms
         }
         return;
       }
@@ -1728,7 +1740,7 @@
           atPhase = "playing";
           atStopHitting();
           atLog("Round " + (atRound+1) + " started — auto-hitting during gameplay");
-          atStartHitting(300);
+          atStartHitting(300); // hit every 300ms during gameplay
         }
         return;
       }
@@ -1741,6 +1753,7 @@
           atLog("Round " + atRound + " ended — Score: " + sc);
           atPhase = "ending";
 
+          // Bug checks
           try {
             const c = canvas.getContext("2d");
             const px = c.getImageData(Math.floor(canvas.width/2), Math.floor(canvas.height/2), 1, 1).data;
@@ -1761,6 +1774,7 @@
             return;
           }
 
+          // Wait for end screen timeout (2.5s), then hit to restart
           setTimeout(() => {
             atPhase = "end";
             atLog("End screen — hitting 3x to restart");
@@ -1781,6 +1795,7 @@
       }
     }
 
+    // Kick off autotest
     async function atStart(){
       atStartTime = Date.now();
       atLog("Autotest starting — max " + AT_MAX_ROUNDS + " rounds");
@@ -1791,6 +1806,7 @@
       atTick();
     }
 
+    // Wait for page to fully load, then auto-start
     if(document.readyState === "complete") setTimeout(atStart, 1000);
     else window.addEventListener("load", () => setTimeout(atStart, 1000));
   }
