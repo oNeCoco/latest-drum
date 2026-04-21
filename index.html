@@ -11,7 +11,7 @@
 
     /* ===== BACKGROUND LAYER — now supports <video> too ===== */
     #bgLayer { position:absolute; inset:0; z-index:0; background:linear-gradient(135deg,#1a0a2e 0%,#3d0a1a 50%,#0a1a2e 100%); pointer-events:none; }
-    #bgLayer img, #bgLayer video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; display:none; }
+    #bgLayer img, #bgLayer video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none; }
 
     #bgTint  { position:absolute; inset:0; z-index:1; background:rgba(10,0,8,0.35); pointer-events:none; }
     #c { position:absolute; inset:0; z-index:2; width:100%; height:100%; display:block; pointer-events:none; }
@@ -19,10 +19,7 @@
 
     .hud {
       position:absolute;
-      top: 20px;
-      left: 0;
-      width: 100%;
-      transform: none;
+      left: 0; right: 0; top: 20px;
       display:flex; justify-content:space-between;
       gap:16px; z-index:3; pointer-events:none;
       padding: 0 20px;
@@ -1035,7 +1032,7 @@
   // GAME LOGIC
   // ==========================================
   const GAME_SECS = 30, BASE_VX = 420, HIT_ICON_SZ = 330, HIT_RADIUS = 185, HIT_WINDOW = 180, LANE_GAP = 140, MIN_NOTE_GAP = 130, SPAWN_MARGIN = 80;
-  const MOUTH_Y = 220;
+  const MOUTH_X = 340;
 
   const items = [], pops = [];
   let running = false, score = 0, timeLeft = 0, last = 0, nextBeatIn = 0, bonusMode = false, drumFlash = 0;
@@ -1068,19 +1065,16 @@
 
   function trySpawnInLane(laneX, type){
     const size = rand(84, 110), half = size * 0.5;
+    // Find highest (smallest y) note already in this lane, so we don't stack them
     let topMost = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
       if (Math.abs(it.x - laneX) < 5 && it.y < topMost) topMost = it.y;
     }
-    const idealY = -(MOUTH_Y + half);
-    const nextY = topMost === Infinity ? idealY : topMost - half - size - MIN_NOTE_GAP;
+    const idealY = -(MOUTH_X) - half;   // spawn above the screen (off-top)
+    const maxY = topMost === Infinity ? idealY : topMost - half - size - MIN_NOTE_GAP;
     const it = getItem();
-    it.type = type;
-    it.x = laneX;
-    it.y = Math.min(idealY, nextY);
-    it.size = size;
-    it.alive = true;
+    it.type = type; it.x = laneX; it.y = Math.min(idealY, maxY); it.size = size; it.alive = true;
     items.push(it);
   }
 
@@ -1119,15 +1113,12 @@
       if (d < bestD) { bestD = d; best = it; }
     }
     if (best) resolveHit(best);
-    else makePop(hitX, hitY - 120, "MISS", 0.45, "#ffd54a");
+    else makePop(hitX, hitY - 60, "MISS", 0.45, "#ffd54a");
   }
 
   function hitTestXY(px, py){
     const dx0 = px - hitX, dy0 = py - hitY;
-    if (dx0*dx0 + dy0*dy0 > HIT_RADIUS*HIT_RADIUS) {
-      makePop(hitX, hitY - 120, "MISS", 0.45, "#ffd54a");
-      return;
-    }
+    if (dx0*dx0 + dy0*dy0 > HIT_RADIUS*HIT_RADIUS) { hitTestAuto(); return; }
     let best = null, bestS = Infinity;
     for (const it of items) {
       if (!it.alive || !canHit(it)) continue;
@@ -1138,7 +1129,7 @@
       }
     }
     if (best) resolveHit(best);
-    else makePop(hitX + 120, hitY - 20, "MISS", 0.45, "#ffd54a");
+    else makePop(hitX, hitY - 220, "MISS", 0.45, "#ffd54a");
   }
 
 
@@ -1174,15 +1165,15 @@
     ctx.stroke();
   }
 
-  function drawLanes(h){
+  function drawLanes(w, h){
     ctx.globalAlpha = 0.18;
     ctx.strokeStyle = "#ffd54a";
     ctx.lineWidth = 4;
-    const mouthY = 80;
-    const drumTopY = hitY - HIT_RADIUS - 20;
+    const topY = 0;
+    const drumEdgeY = hitY - HIT_RADIUS - 20;
     ctx.beginPath();
-    ctx.moveTo(laneX1, mouthY); ctx.lineTo(laneX1, drumTopY);
-    ctx.moveTo(laneX2, mouthY); ctx.lineTo(laneX2, drumTopY);
+    ctx.moveTo(laneX1, topY); ctx.lineTo(laneX1, drumEdgeY);
+    ctx.moveTo(laneX2, topY); ctx.lineTo(laneX2, drumEdgeY);
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
@@ -1204,17 +1195,17 @@
     ctx.restore();
   }
 
-  // Drum position
+  // Drum position (vertical layout: center-x, near bottom)
   const LS_POS = { X:"cg_hitXmul", Y:"cg_hitYmul" };
   try { localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); } catch(e){}
-  try { if(!localStorage.getItem("cg_pos_v2")){ localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); localStorage.setItem("cg_pos_v2","1"); } } catch(e){}
-  let hitXMul = 0.50;
-  let hitYMul = 0.82;
+  try { if(!localStorage.getItem("cg_pos_v3")){ localStorage.removeItem(LS_POS.X); localStorage.removeItem(LS_POS.Y); localStorage.setItem("cg_pos_v3","1"); } } catch(e){}
+  let hitXMul = parseFloat(localStorage.getItem(LS_POS.X) || "0.50");
+  let hitYMul = parseFloat(localStorage.getItem(LS_POS.Y) || "0.85");
 
   function updatePositions(){
     const w = window.innerWidth, h = window.innerHeight;
     hitX = w * hitXMul;
-    hitY = h * hitYMul;
+    hitY = Math.min(h - 200, h * hitYMul);
     laneX1 = hitX - LANE_GAP * 0.5;
     laneX2 = hitX + LANE_GAP * 0.5;
   }
@@ -1248,7 +1239,7 @@
 
     if (!bonusMode && timeLeft <= 5) {
       bonusMode = true;
-      makePop(hitX, hitY - 260, "BONUS RUSH!", 1.0, "#ffd54a");
+      makePop(hitX, hitY - 220, "BONUS RUSH!", 1.0, "#ffd54a");
     }
 
     if (timeLeft <= 0) { endGame(); return; }
@@ -1272,10 +1263,10 @@
     if (drumFlash > 0) drumFlash -= dt;
 
     ctx.clearRect(0, 0, w, h);
-    drawLanes(w);
+    drawLanes(w, h);
     drawHitDrum();
 
-    // PERF: sort only alive items, draw back-to-front
+    // PERF: sort only alive items, draw back-to-front (lowest y first = further from drum)
     items.sort((a,b) => a.y - b.y);
     for (const it of items) { if (it.alive) drawNote(it); }
 
@@ -1367,33 +1358,30 @@
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(0, 0, w, h);
 
-    ctx.save();
-    const rw = w, rh = h;
-
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
     ctx.fillStyle = "#ffd54a";
-    ctx.font = "900 " + Math.floor(Math.min(rw, rh)*0.10) + "px system-ui";
-    ctx.fillText("GET READY!", rw/2, rh*0.22);
+    ctx.font = "900 " + Math.floor(w*0.12) + "px system-ui";
+    ctx.fillText("GET READY!", w/2, h*0.25);
 
     const t = performance.now()/1000;
-    const bob = Math.sin(t*2.4) * (rh*0.010);
+    const bob = Math.sin(t*2.4) * (h*0.010);
     const pulse = 0.75 + 0.25*(0.5+0.5*Math.sin(t*3.2));
 
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25*pulse;
     ctx.fillStyle = "rgba(255,255,255,1)";
-    ctx.font = "800 " + Math.floor(Math.min(rw, rh)*0.045) + "px system-ui";
-    ctx.fillText("HIT 3 TIMES TO START", rw/2, rh*0.40 + bob);
+    ctx.font = "800 " + Math.floor(w*0.055) + "px system-ui";
+    ctx.fillText("HIT 3 TIMES TO START", w/2, h*0.48 + bob);
     ctx.restore();
 
     const need = readyNeeded;
-    const dotR = Math.floor(rw * 0.030);
+    const dotR = Math.floor(w * 0.030);
     const gap  = dotR * 3.2;
     const totalDotW = (need - 1) * gap;
-    const DOT_CENTER_X = rw * 0.48;
-    const DOT_CENTER_Y = rh * 0.56;
+    const DOT_CENTER_X = w * 0.50;
+    const DOT_CENTER_Y = h * 0.87;
 
     for (let i = 0; i < need; i++) {
       const dx = DOT_CENTER_X - totalDotW / 2 + i * gap;
@@ -1408,8 +1396,7 @@
     }
 
     ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "600 " + Math.floor(Math.min(rw, rh)*0.026) + "px system-ui";
-    ctx.restore();
+    ctx.font = "600 " + Math.floor(w*0.030) + "px system-ui";
   }
 
   async function readyScreenHit(){
@@ -1464,8 +1451,6 @@
     ctx.fillStyle = "rgba(0,0,0," + (0.35*fadeIn) + ")";
     ctx.fillRect(0, 0, w, h);
 
-    ctx.save();
-    const rw = w, rh = h;
     ctx.globalAlpha = fadeIn;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1474,7 +1459,6 @@
 
     // Phase 1: TIME OUT countdown
     if (elapsed < TIMEOUT_COUNTDOWN_SECS) {
-      ctx.restore();
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "rgba(0,0,0,1)";
       ctx.fillRect(0, 0, w, h);
@@ -1484,8 +1468,6 @@
       const phase = 1 - (remain / TIMEOUT_COUNTDOWN_SECS);
       const pulse = 0.85 + 0.15*Math.sin(t*4.0);
 
-      ctx.save();
-      const rw2 = w, rh2 = h;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
@@ -1493,23 +1475,23 @@
       ctx.globalAlpha = a;
 
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 " + Math.floor(Math.min(rw2, rh2)*0.11) + "px system-ui";
-      ctx.fillText("TIME OUT", rw2/2, rh2*0.32);
+      ctx.font = "900 " + Math.floor(w*0.14) + "px system-ui";
+      ctx.fillText("TIME OUT", w/2, h*0.42);
 
       if (n > 0) {
         const scale = (1.15 - 0.25*phase) * pulse;
         ctx.save();
-        ctx.translate(rw2/2, rh2*0.48);
+        ctx.translate(w/2, h*0.58);
         ctx.scale(scale, scale);
-        ctx.font = "950 " + Math.floor(Math.min(rw2, rh2)*0.15) + "px system-ui";
+        ctx.font = "950 " + Math.floor(w*0.18) + "px system-ui";
         ctx.fillText(String(n), 0, 0);
         ctx.restore();
       }
 
       // Circular progress
       const prog = Math.min(1, elapsed / TIMEOUT_COUNTDOWN_SECS);
-      const cx = rw2/2, cy = rh2*0.48;
-      const radius = Math.min(rw2, rh2) * 0.11;
+      const cx = w/2, cy = h*0.58;
+      const radius = Math.min(w, h) * 0.11;
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineWidth = Math.max(6, radius*0.12);
@@ -1524,31 +1506,30 @@
       ctx.stroke();
       ctx.restore();
 
-      ctx.restore();
       return;
     }
 
     // Phase 2: Score + hit to replay
     const pulse = 0.75 + 0.25*(0.5+0.5*Math.sin(t*3.0));
-    const bob = Math.sin(t*2.2) * (rh*0.012);
+    const bob = Math.sin(t*2.2) * (h*0.012);
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "950 " + Math.floor(Math.min(rw, rh)*0.12) + "px system-ui";
+    ctx.font = "950 " + Math.floor(w*0.14) + "px system-ui";
     ctx.globalAlpha = 0.85 + 0.15*pulse;
-    ctx.fillText(String(score), rw/2, rh*0.32 + bob);
+    ctx.fillText(String(score), w/2, h*0.36 + bob);
     ctx.globalAlpha = 1;
 
     const hitsLeft = drumRestartNeeded - drumRestartCount;
     ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "800 " + Math.floor(Math.min(rw, rh)*0.040) + "px system-ui";
-    ctx.fillText("Hit " + hitsLeft + " more time" + (hitsLeft !== 1 ? "s" : "") + " to play again", rw/2, rh*0.50);
+    ctx.font = "800 " + Math.floor(w*0.045) + "px system-ui";
+    ctx.fillText("Hit " + hitsLeft + " more time" + (hitsLeft !== 1 ? "s" : "") + " to play again", w/2, h*0.60);
 
-    const dotR = Math.floor(rw*0.030);
+    const dotR = Math.floor(w*0.030);
     const gap = dotR * 3.2;
     const totalDotW = (drumRestartNeeded - 1) * gap;
     for (let i = 0; i < drumRestartNeeded; i++) {
-      const dx = rw/2 - totalDotW/2 + i*gap;
-      const dy = rh*0.62;
+      const dx = w/2 - totalDotW/2 + i*gap;
+      const dy = h*0.74;
       ctx.beginPath();
       ctx.arc(dx, dy, dotR, 0, Math.PI*2);
       ctx.fillStyle = i < drumRestartCount ? "#ffd54a" : "rgba(255,255,255,0.2)";
@@ -1559,7 +1540,6 @@
     }
 
     ctx.globalAlpha = 1;
-    ctx.restore();
   }
 
   async function endScreenHit(){
