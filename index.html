@@ -1239,7 +1239,7 @@
 
     if (!bonusMode && timeLeft <= 5) {
       bonusMode = true;
-      makePop(hitX, hitY - 220, "BONUS RUSH!", 1.0, "#ffd54a");
+      makePop(w/2, h*0.35, "BONUS RUSH!", 1.5, "#ffd54a");
     }
 
     if (timeLeft <= 0) { endGame(); return; }
@@ -1257,7 +1257,7 @@
     // Clean pops
     for (let i = pops.length - 1; i >= 0; i--) {
       pops[i].t -= dt;
-      pops[i].y -= 30 * dt;
+      if (pops[i].txt !== "BONUS RUSH!") pops[i].y -= 30 * dt;
       if (pops[i].t <= 0) { releasePop(pops[i]); pops.splice(i, 1); }
     }
     if (drumFlash > 0) drumFlash -= dt;
@@ -1275,10 +1275,29 @@
       if (p.t <= 0) continue;
       ctx.globalAlpha = Math.min(1, p.t / 0.2);
       ctx.fillStyle = p.col;
-      ctx.font = "900 26px system-ui";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(p.txt, p.x, p.y);
+      const isBanner = p.txt === "BONUS RUSH!";
+      if (isBanner) {
+        // Big pulsing banner for BONUS RUSH
+        const tt = performance.now()/1000;
+        const pulse = 1 + 0.08*Math.sin(tt*8);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.scale(pulse, pulse);
+        ctx.font = "900 " + Math.floor(w*0.09) + "px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // Outline for readability against any background
+        ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        ctx.lineWidth = 8;
+        ctx.strokeText(p.txt, 0, 0);
+        ctx.fillText(p.txt, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.font = "900 26px system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(p.txt, p.x, p.y);
+      }
       ctx.globalAlpha = 1;
     }
 
