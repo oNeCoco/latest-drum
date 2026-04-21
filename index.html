@@ -1022,7 +1022,7 @@
   const LANE_GAP = 140;           // horizontal distance between two lanes
   const MIN_NOTE_GAP = 130;       // vertical spacing between stacked notes in same lane
   const SPAWN_MARGIN = 80;
-  const MOUTH_Y = 150;            // where notes appear from (offscreen above)
+  const MOUTH_Y = 120;            // where notes appear from (offscreen above)
 
   const items = [], pops = [];
   let running = false, score = 0, timeLeft = 0, last = 0, nextBeatIn = 0, bonusMode = false, drumFlash = 0;
@@ -1058,16 +1058,28 @@
   // A "lane" is a vertical column at x = laneX1 or x = laneX2.
   // New notes spawn with y < existing notes in the same lane, to avoid overlap.
   function trySpawnInLane(laneX, type){
-    const size = rand(84, 110), half = size * 0.5;
-    let topmost = Infinity; // smallest y = highest on screen
+    const size = rand(84, 110);
+    const half = size * 0.5;
+  
+    const idealY = MOUTH_Y - half; // spawn near mouth, visible on screen
+  
+    let topmost = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
       if (Math.abs(it.x - laneX) < 5 && it.y < topmost) topmost = it.y;
     }
-    const idealY = MOUTH_Y - half; // start above the screen
-    const maxY = topmost === Infinity ? idealY : topmost - half - size - MIN_NOTE_GAP;
+  
+    // do not force new notes above the screen
+    const spawnY = (topmost === Infinity)
+      ? idealY
+      : Math.max(idealY, topmost - half - size - MIN_NOTE_GAP);
+  
     const it = getItem();
-    it.type = type; it.x = laneX; it.y = Math.min(idealY, maxY); it.size = size; it.alive = true;
+    it.type = type;
+    it.x = laneX;
+    it.y = spawnY;
+    it.size = size;
+    it.alive = true;
     items.push(it);
   }
 
@@ -1160,22 +1172,22 @@
 
   // Lanes are vertical lines from top of screen down to just above the drum
   function drawLanes(h){
-  ctx.globalAlpha = 0.18;
-  ctx.strokeStyle = "#ffd54a";
-  ctx.lineWidth = 4;
-
-  const mouthY = 150; // move this bigger to start lower
-  const drumEdgeY = hitY - HIT_RADIUS - 20;
-
-  ctx.beginPath();
-  ctx.moveTo(laneX1, mouthY);
-  ctx.lineTo(laneX1, drumEdgeY);
-  ctx.moveTo(laneX2, mouthY);
-  ctx.lineTo(laneX2, drumEdgeY);
-  ctx.stroke();
-
-  ctx.globalAlpha = 1;
-}
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = "#ffd54a";
+    ctx.lineWidth = 4;
+  
+    const mouthY = MOUTH_Y;
+    const drumEdgeY = hitY - HIT_RADIUS - 20;
+  
+    ctx.beginPath();
+    ctx.moveTo(laneX1, mouthY);
+    ctx.lineTo(laneX1, drumEdgeY);
+    ctx.moveTo(laneX2, mouthY);
+    ctx.lineTo(laneX2, drumEdgeY);
+    ctx.stroke();
+  
+    ctx.globalAlpha = 1;
+  }
 
   function drawNote(it){
     ctx.save();
@@ -1235,7 +1247,7 @@
 
     if (!bonusMode && timeLeft <= 5) {
       bonusMode = true;
-      makePop(hitX, hitY - 320, "BONUS RUSH!", 1.0, "#ffd54a");
+      makePop(window.innerWidth / 2, hitY - 260, "BONUS RUSH!", 1.0, "#ffd54a");
     }
 
     if (timeLeft <= 0) { endGame(); return; }
