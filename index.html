@@ -1160,17 +1160,22 @@
 
   // Lanes are vertical lines from top of screen down to just above the drum
   function drawLanes(h){
-    ctx.globalAlpha = 0.18;const mouthY
-    ctx.strokeStyle = "#ffd54a";
-    ctx.lineWidth = 4;
-    const mouthY = 150; // start a bit above top
-    const drumEdgeY = hitY - HIT_RADIUS - 20;
-    ctx.beginPath();
-    ctx.moveTo(laneX1, mouthY); ctx.lineTo(laneX1, drumEdgeY);
-    ctx.moveTo(laneX2, mouthY); ctx.lineTo(laneX2, drumEdgeY);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
+  ctx.globalAlpha = 0.18;
+  ctx.strokeStyle = "#ffd54a";
+  ctx.lineWidth = 4;
+
+  const mouthY = 150; // move this bigger to start lower
+  const drumEdgeY = hitY - HIT_RADIUS - 20;
+
+  ctx.beginPath();
+  ctx.moveTo(laneX1, mouthY);
+  ctx.lineTo(laneX1, drumEdgeY);
+  ctx.moveTo(laneX2, mouthY);
+  ctx.lineTo(laneX2, drumEdgeY);
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
+}
 
   function drawNote(it){
     ctx.save();
