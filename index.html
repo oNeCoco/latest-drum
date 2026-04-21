@@ -1033,6 +1033,7 @@
   // ==========================================
   const GAME_SECS = 30, BASE_VX = 420, HIT_ICON_SZ = 330, HIT_RADIUS = 185, HIT_WINDOW = 180, LANE_GAP = 140, MIN_NOTE_GAP = 130, SPAWN_MARGIN = 80;
   const MOUTH_X = 340;
+  const MOUTH_Y_MUL = 0.15;  // Notes spawn at this % of screen height (lion's mouth area)
 
   const items = [], pops = [];
   let running = false, score = 0, timeLeft = 0, last = 0, nextBeatIn = 0, bonusMode = false, drumFlash = 0;
@@ -1064,14 +1065,14 @@
   }
 
   function trySpawnInLane(laneX, type){
-    const size = rand(84, 110), half = size * 0.5;
+    const size = rand(84, 110), half = size * 0.5, sh = window.innerHeight;
     // Find highest (smallest y) note already in this lane, so we don't stack them
     let topMost = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
       if (Math.abs(it.x - laneX) < 5 && it.y < topMost) topMost = it.y;
     }
-    const idealY = -(MOUTH_X) - half;   // spawn above the screen (off-top)
+    const idealY = sh * MOUTH_Y_MUL;   // spawn at lion's mouth
     const maxY = topMost === Infinity ? idealY : topMost - half - size - MIN_NOTE_GAP;
     const it = getItem();
     it.type = type; it.x = laneX; it.y = Math.min(idealY, maxY); it.size = size; it.alive = true;
@@ -1169,7 +1170,7 @@
     ctx.globalAlpha = 0.18;
     ctx.strokeStyle = "#ffd54a";
     ctx.lineWidth = 4;
-    const topY = 0;
+    const topY = h * MOUTH_Y_MUL;
     const drumEdgeY = hitY - HIT_RADIUS - 20;
     ctx.beginPath();
     ctx.moveTo(laneX1, topY); ctx.lineTo(laneX1, drumEdgeY);
