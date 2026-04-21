@@ -1114,17 +1114,20 @@
     let best = null, bestD = Infinity;
     for (const it of items) {
       if (!it.alive) continue;
-      const d = Math.abs(it.x - hitX);
+      const d = Math.abs(it.y - hitY);
       if (d > HIT_WINDOW) continue;
       if (d < bestD) { bestD = d; best = it; }
     }
     if (best) resolveHit(best);
-    else makePop(hitX + 60, hitY - 60, "MISS", 0.45, "#ffd54a");
+    else makePop(hitX, hitY - 120, "MISS", 0.45, "#ffd54a");
   }
 
   function hitTestXY(px, py){
     const dx0 = px - hitX, dy0 = py - hitY;
-    if (dx0*dx0 + dy0*dy0 > HIT_RADIUS*HIT_RADIUS) { hitTestAuto(); return; }
+    if (dx0*dx0 + dy0*dy0 > HIT_RADIUS*HIT_RADIUS) {
+      makePop(hitX, hitY - 120, "MISS", 0.45, "#ffd54a");
+      return;
+    }
     let best = null, bestS = Infinity;
     for (const it of items) {
       if (!it.alive || !canHit(it)) continue;
@@ -1371,7 +1374,7 @@
     ctx.textBaseline = "middle";
 
     ctx.fillStyle = "#ffd54a";
-    ctx.font = "900 " + Math.floor(rw*0.12) + "px system-ui";
+    ctx.font = "900 " + Math.floor(Math.min(rw, rh)*0.10) + "px system-ui";
     ctx.fillText("GET READY!", rw/2, rh*0.22);
 
     const t = performance.now()/1000;
@@ -1381,7 +1384,7 @@
     ctx.save();
     ctx.globalAlpha = 0.75 + 0.25*pulse;
     ctx.fillStyle = "rgba(255,255,255,1)";
-    ctx.font = "800 " + Math.floor(rw*0.055) + "px system-ui";
+    ctx.font = "800 " + Math.floor(Math.min(rw, rh)*0.045) + "px system-ui";
     ctx.fillText("HIT 3 TIMES TO START", rw/2, rh*0.40 + bob);
     ctx.restore();
 
@@ -1405,7 +1408,7 @@
     }
 
     ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "600 " + Math.floor(rw*0.030) + "px system-ui";
+    ctx.font = "600 " + Math.floor(Math.min(rw, rh)*0.026) + "px system-ui";
     ctx.restore();
   }
 
@@ -1490,7 +1493,7 @@
       ctx.globalAlpha = a;
 
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 " + Math.floor(rw2*0.14) + "px system-ui";
+      ctx.font = "900 " + Math.floor(Math.min(rw2, rh2)*0.11) + "px system-ui";
       ctx.fillText("TIME OUT", rw2/2, rh2*0.32);
 
       if (n > 0) {
@@ -1498,7 +1501,7 @@
         ctx.save();
         ctx.translate(rw2/2, rh2*0.48);
         ctx.scale(scale, scale);
-        ctx.font = "950 " + Math.floor(rw2*0.18) + "px system-ui";
+        ctx.font = "950 " + Math.floor(Math.min(rw2, rh2)*0.15) + "px system-ui";
         ctx.fillText(String(n), 0, 0);
         ctx.restore();
       }
@@ -1530,14 +1533,14 @@
     const bob = Math.sin(t*2.2) * (rh*0.012);
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "950 " + Math.floor(rw*0.14) + "px system-ui";
+    ctx.font = "950 " + Math.floor(Math.min(rw, rh)*0.12) + "px system-ui";
     ctx.globalAlpha = 0.85 + 0.15*pulse;
     ctx.fillText(String(score), rw/2, rh*0.32 + bob);
     ctx.globalAlpha = 1;
 
     const hitsLeft = drumRestartNeeded - drumRestartCount;
     ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "800 " + Math.floor(rw*0.045) + "px system-ui";
+    ctx.font = "800 " + Math.floor(Math.min(rw, rh)*0.040) + "px system-ui";
     ctx.fillText("Hit " + hitsLeft + " more time" + (hitsLeft !== 1 ? "s" : "") + " to play again", rw/2, rh*0.50);
 
     const dotR = Math.floor(rw*0.030);
